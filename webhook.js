@@ -1,27 +1,41 @@
-const express = require('express');
-const serverless = require('serverless-http');
-const Razorpay = require('razorpay');
-const crypto = require('crypto');
+// api/razorpay-webhook.js
 
-const app = express();
-app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf } }));
+import getRawBody from 'raw-body';
+import crypto from 'crypto';
 
-app.post('/api/webhook', (req, res) => {
-  const secret = process.env.my_secret_razorpay_karanisgreat;
-  const signature = req.headers['x-razorpay-signature'];
+export const config = {
+  api: {
+    bodyParser: false, // required for Razorpay signature validation
+  },
+};
 
-  const expectedSignature = crypto.createHmac('sha256', secret)
-    .update(req.rawBody)
-    .digest('hex');
-
-  if (signature === expectedSignature) {
-    console.log('✅ Webhook verified!');
-    console.log(req.body); // handle subscription/payment event
-    res.status(200).json({ status: 'ok' });
-  } else {
-    console.warn('❌ Invalid webhook signature');
-    res.status(400).send('Invalid signature');
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).send('Method Not Allowed');
   }
-});
 
-module.exports.handler = serverless(app);
+  try {
+    const rawBody = await getRawBody(req);
+    const signature = req.headers['x-razorpay-signature'];
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+
+    const hash = crypto
+      .createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
+
+    if (hash !== signature) {
+      console.error('❌ Invalid signature');
+      return res.status(400).send('Invalid signature');
+    }
+
+    const payload = JSON.parse(rawBody.toString());
+    console.log('✅ Webhook received:', payload);
+
+    // 👉 Handle the Razorpay event here (like saving to DB)
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('❌ Webhook error:', err);
+    return res.status(500).send('Internal Server Error');
+  }
+}
