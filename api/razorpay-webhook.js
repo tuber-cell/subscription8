@@ -1,41 +1,44 @@
-// api/razorpay-webhook.js
-
 import getRawBody from 'raw-body';
 import crypto from 'crypto';
 
 export const config = {
   api: {
-    bodyParser: false, // required for Razorpay signature validation
+    bodyParser: false, // Razorpay requires raw body
   },
 };
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).send('Method Not Allowed');
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
+    // Get raw body
     const rawBody = await getRawBody(req);
     const signature = req.headers['x-razorpay-signature'];
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    const hash = crypto
+    // Compute hash
+    const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(rawBody)
       .digest('hex');
 
-    if (hash !== signature) {
-      console.error('❌ Invalid signature');
-      return res.status(400).send('Invalid signature');
+    // Signature validation
+    if (signature !== expectedSignature) {
+      console.error('❌ Invalid webhook signature');
+      return res.status(400).json({ error: 'Invalid signature' });
     }
 
+    // Parse payload and log it
     const payload = JSON.parse(rawBody.toString());
-    console.log('✅ Webhook received:', payload);
+    console.log('✅ Valid Razorpay webhook payload:', payload);
 
-    // 👉 Handle the Razorpay event here (like saving to DB)
+    // TODO: Handle the event (e.g., save to DB)
+
     return res.status(200).json({ success: true });
   } catch (err) {
     console.error('❌ Webhook error:', err);
-    return res.status(500).send('Internal Server Error');
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 }
